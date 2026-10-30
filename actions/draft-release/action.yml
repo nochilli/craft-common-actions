@@ -66,3 +66,93 @@ runs:
           echo
           sed 's/^/    /' SHA256SUMS.txt
         } >>"$GITHUB_STEP_SUMMARY"
+        python3 - <<'PY' >>"$GITHUB_STEP_SUMMARY"
+        import html
+        import os
+        from pathlib import Path
+        import re
+        from urllib.parse import quote
+
+        architectures = (
+            (r"riscv64", "RISC-V"),
+            (r"aarch64|arm64", "ARM"),
+            (r"x86_64|amd64|x64", "64 Bit"),
+            (r"i686|i386|(?<![a-z0-9])x86(?![a-z0-9])", "32 Bit"),
+        )
+
+        def artifact_architecture(name):
+            lower = name.lower()
+            return next(
+                (label for pattern, label in architectures if re.search(pattern, lower)),
+                None,
+            )
+
+        files = [
+            path.name for path in Path(".").iterdir()
+            if path.is_file()
+            and path.name != "SHA256SUMS.txt"
+            and not path.name.lower().endswith(".zsync")
+        ]
+        categories = (
+            ("MacOS Installer", lambda name: name.lower().endswith(".dmg") and ("macos" in name.lower() or "darwin" in name.lower())),
+            ("MacOS CLI", lambda name: "cli" in name.lower() and ("macos" in name.lower() or "darwin" in name.lower()) and name.lower().endswith(".zip")),
+            ("Windows Installer", lambda name: "windows" in name.lower() and name.lower().endswith(".msi")),
+            ("Windows Portable", lambda name: "windows" in name.lower() and "portable" in name.lower() and name.lower().endswith(".zip")),
+            ("Linux AppImage", lambda name: name.lower().endswith(".appimage")),
+            ("Arch Linux", lambda name: name.lower().endswith(".pkg.tar.zst")),
+            ("Debian (.deb)", lambda name: name.lower().endswith(".deb")),
+            ("Fedora (.rpm)", lambda name: name.lower().endswith(".rpm")),
+            ("Flatpak", lambda name: name.lower().endswith(".flatpak")),
+            ("Tarball", lambda name: name.lower().endswith(".tar.gz") and "freebsd" not in name.lower()),
+            ("FreeBSD", lambda name: "freebsd" in name.lower() and name.lower().endswith(".tar.gz")),
+            ("WebAssembly", lambda name: ("web" in name.lower() or "wasm" in name.lower()) and name.lower().endswith(".zip")),
+        )
+        repository = os.environ["GH_REPO"]
+        tag = f"v{os.environ['VERSION']}"
+        download_base = f"https://github.com/{repository}/releases/download/{quote(tag, safe='')}"
+        print(f"## {html.escape(os.environ['APP_TITLE'])} {html.escape(os.environ['VERSION'])}")
+        print(f"|  | Download |")
+        print("| --- | --- |")
+        for label, matches in categories:
+            assets = sorted(
+                (name for name in files if matches(name)),
+                key=lambda name: (
+                    {"64 Bit": 0, "32 Bit": 1, "ARM": 2, "RISC-V": 3}.get(
+                        artifact_architecture(name), 4
+                    ),
+                    name.casefold(),
+                ),
+            )
+            if not assets:
+                continue
+            downloads = []
+            for name in assets:
+                architecture = artifact_architecture(name)
+                if label == "MacOS Installer":
+                    display = re.sub(
+                        rf"-{re.escape(os.environ['VERSION'])}-(?:macos|darwin)-universal(?=\.dmg$)",
+                        "",
+                        name,
+                        flags=re.IGNORECASE,
+                    )
+                elif label == "MacOS CLI":
+                    display = re.sub(
+                        rf"-{re.escape(os.environ['VERSION'])}-(?:macos|darwin)-universal(?=\.zip$)",
+                        "",
+                        name,
+                        flags=re.IGNORECASE,
+                    )
+                elif label == "WebAssembly":
+                    display = re.sub(
+                        rf"-{re.escape(os.environ['VERSION'])}(?=\.zip$)",
+                        "",
+                        name,
+                        flags=re.IGNORECASE,
+                    )
+                else:
+                    display = architecture or Path(name).name
+                link = f"{download_base}/{quote(name, safe='')}"
+                downloads.append(f"[{display}]({link})")
+            print(f"| {label} | {' • '.join(downloads)} |")
+        print()
+         >>"$GITHUB_STEP_SUMMARY"
