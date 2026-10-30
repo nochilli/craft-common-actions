@@ -111,6 +111,7 @@ runs:
         tag = f"v{os.environ['VERSION']}"
         download_base = f"https://github.com/{repository}/releases/download/{quote(tag, safe='')}"
         print(f"## {html.escape(os.environ['APP_TITLE'])} {html.escape(os.environ['VERSION'])}")
+        print()
         print(f"|  | Download |")
         print("| --- | --- |")
         for label, matches in categories:
