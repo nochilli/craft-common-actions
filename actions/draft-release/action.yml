@@ -44,6 +44,8 @@ runs:
       run: |
         tag="v$VERSION"
         title="$APP_TITLE v$VERSION"
+        notes_file="$RUNNER_TEMP/release-notes.md"
+        table_file="$RUNNER_TEMP/download-table.md"
         pre=()
         if [ "$PRERELEASE" = "true" ]; then pre=(--prerelease); fi
         if draft="$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null)"; then
@@ -55,11 +57,12 @@ runs:
           gh release view "$tag" --json assets --jq '.assets[].name' | while read -r asset; do
             gh release delete-asset "$tag" "$asset" --yes
           done
-          gh release edit "$tag" --draft --title "$title" --target "$GITHUB_SHA" --prerelease="$PRERELEASE"
+          gh release view "$tag" --json body --jq .body > "$notes_file"
           gh release upload "$tag" --clobber -- *
         else
           echo "Creating draft $tag"
           gh release create "$tag" --draft --title "$title" --target "$GITHUB_SHA" --generate-notes "${pre[@]}" -- *
+          gh release view "$tag" --json body --jq .body > "$notes_file"
         fi
         {
           echo "Draft release **$title** at \`${GITHUB_SHA::9}\`:"
@@ -68,7 +71,7 @@ runs:
         } >>"$GITHUB_STEP_SUMMARY"
         
         # Generate a table of downloads for the release notes
-        python3 - <<'PY' >>"$GITHUB_STEP_SUMMARY"
+        python3 - <<'PY' > "$table_file"
         import html
         import os
         from pathlib import Path
@@ -169,3 +172,7 @@ runs:
             print(f"| {label} | {' • '.join(downloads)} |")
         print()
         PY
+        cat "$table_file" >>"$GITHUB_STEP_SUMMARY"
+        printf '\n' >> "$notes_file"
+        cat "$table_file" >> "$notes_file"
+        gh release edit "$tag" --draft --title "$title" --target "$GITHUB_SHA" --prerelease="$PRERELEASE" --notes-file "$notes_file"
